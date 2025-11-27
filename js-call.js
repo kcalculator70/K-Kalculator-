@@ -1,31 +1,17 @@
-// js-call.js - WebRTC Calling Logic (Fixed for Mobile Devices)
+// js-call.js - WebRTC Calling Logic with Firebase Fixed
 
-// ভিডিও এলিমেন্ট
 const localVideo = document.getElementById('local-video');
 const remoteVideo = document.getElementById('remote-video');
-
-// মোডাল এবং স্ট্যাটাস টেক্সট
+// আইডি ফিক্স করা হয়েছে
 const callModal = document.getElementById('call-interface-modal'); 
 const incomingCallModal = document.getElementById('incoming-call-modal');
 const callStatus = document.getElementById('call-status');
 const callPartnerName = document.getElementById('call-partner-name');
 
-// নতুন UI লেয়ার
-const videoUiLayer = document.getElementById('video-ui-layer');
-const audioUiLayer = document.getElementById('audio-ui-layer');
-const audioCallName = document.getElementById('audio-call-name-display');
-const audioCallStatus = document.getElementById('audio-call-status-text');
-const audioCallTimerDisplay = document.getElementById('audio-call-timer');
-
-// ভেরিয়েবল
 let localStream;
 let peerConnection;
 let currentCallRef;
 let incomingCallData = null;
-let activeCallPartnerId = null;
-let isCurrentCallVideo = false;
-let callTimerInterval;
-let callStartTime;
 
 // STUN Servers
 const servers = {
@@ -34,47 +20,46 @@ const servers = {
     ]
 };
 
-// ==========================================
-// 1. কল শুরু করার ফাংশন (Start Call - Caller Side)
-// ==========================================
+// 1. কল শুরু করার ফাংশন (Start Call)
 async function startCall(isVideo) {
+    // চেক করা হচ্ছে currentChatId আছে কিনা (js-chat.js থেকে আসার কথা)
     if (typeof currentChatId === 'undefined' || !currentChatId) {
         alert("Please select a friend to call first!");
         return;
     }
     
-    activeCallPartnerId = currentChatId;
-    isCurrentCallVideo = isVideo;
+    const friendId = currentChatId; 
 
     try {
-        // UI সেটআপ
-        setupCallUI(isVideo, true);
-
-        // [FIX] Constraints তৈরি করা (মোবাইলের জন্য নিরাপদ পদ্ধতি)
-        const constraints = {
-            audio: true,
-            video: isVideo ? { facingMode: "user" } : false 
-        };
-
-        // ক্যামেরা/মাইক এক্সেস নেওয়া
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        // নিজের ক্যামেরা/মাইক চালু করা
+        localStream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+        localVideo.srcObject = localStream;
         
-        // ভিডিও এলিমেন্টে স্ট্রিম সেট করা (শুধু ভিডিও কলের জন্য)
-        if (isVideo && localVideo) {
-            localVideo.srcObject = localStream;
+        // UI আপডেট (আগে এখানে ভুল আইডি ছিল, এখন ভেরিয়েবল ব্যবহার করা হয়েছে)
+        callModal.classList.remove('hidden'); 
+        
+        // নামের টেক্সট সেট করা
+        const chatHeaderName = document.getElementById('chat-header-name');
+        if(chatHeaderName) {
+            callPartnerName.textContent = chatHeaderName.textContent;
+        } else {
+            callPartnerName.textContent = "Friend";
         }
+        
+        callStatus.textContent = "Calling...";
 
         // Peer Connection তৈরি
-        createPeerConnection(activeCallPartnerId);
+        createPeerConnection(friendId);
 
         // Offer তৈরি করা
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
 
-        // Firebase এ পাঠানো
+        // Firebase এ কল রিকোয়েস্ট পাঠানো
         const callId = db.ref('calls').push().key;
-        currentCallRef = db.ref(`calls/${activeCallPartnerId}/${callId}`);
+        currentCallRef = db.ref(`calls/${friendId}/${callId}`);
         
+        // নিজের নাম নেয়া
         const myNameElement = document.getElementById('profile-view-name');
         const myName = myNameElement ? myNameElement.textContent : "Unknown";
 
@@ -86,68 +71,33 @@ async function startCall(isVideo) {
             sdp: JSON.stringify(peerConnection.localDescription)
         });
 
-        listenForAnswer(activeCallPartnerId, callId);
+        // সিগন্যালিং শোনা (Call Answered?)
+        listenForAnswer(friendId, callId);
 
     } catch (error) {
         console.error("Error starting call:", error);
-        // [UPDATE] আসল এরর মেসেজ দেখালে সমস্যা বোঝা সহজ হবে
-        alert("Device Error: " + error.name + " - " + error.message);
-        endCall(false);
+        alert("Could not access camera/microphone. Please allow permissions.");
+        endCall();
     }
 }
 
-// ==========================================
-// 2. UI কন্ট্রোল ফাংশন
-// ==========================================
-function setupCallUI(isVideo, isOutgoing, partnerName = null) {
-    callModal.classList.remove('hidden');
-    
-    let displayName = "Friend";
-    if (partnerName) {
-        displayName = partnerName;
-    } else if (document.getElementById('chat-header-name')) {
-        displayName = document.getElementById('chat-header-name').textContent;
-    }
-
-    if (isVideo) {
-        videoUiLayer.classList.remove('hidden');
-        audioUiLayer.classList.add('hidden');
-        callPartnerName.textContent = displayName;
-        callStatus.textContent = isOutgoing ? "Calling..." : "Connecting...";
-    } else {
-        videoUiLayer.classList.add('hidden');
-        audioUiLayer.classList.remove('hidden');
-        audioCallName.textContent = displayName;
-        audioCallStatus.textContent = isOutgoing ? "Calling..." : "Connecting...";
-        audioCallTimerDisplay.textContent = "";
-    }
-}
-
-// ==========================================
-// 3. Peer Connection সেটআপ
-// ==========================================
+// 2. Peer Connection সেটআপ
 function createPeerConnection(partnerId) {
     peerConnection = new RTCPeerConnection(servers);
 
+    // স্ট্রিম যোগ করা
     if(localStream) {
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
         });
     }
 
+    // রিমোট স্ট্রিম রিসিভ করা
     peerConnection.ontrack = (event) => {
-        if(remoteVideo) remoteVideo.srcObject = event.streams[0];
+        remoteVideo.srcObject = event.streams[0];
     };
 
-    peerConnection.onconnectionstatechange = () => {
-        if (peerConnection.connectionState === 'connected') {
-            startCallTimer();
-            const statusText = "Connected";
-            callStatus.textContent = statusText;
-            audioCallStatus.textContent = statusText;
-        }
-    };
-
+    // ICE Candidate হ্যান্ডেল করা
     peerConnection.onicecandidate = (event) => {
         if (event.candidate && currentCallRef) {
             currentCallRef.child('candidates').push(JSON.stringify(event.candidate));
@@ -155,57 +105,35 @@ function createPeerConnection(partnerId) {
     };
 }
 
-// ==========================================
-// 4. টাইমার লজিক
-// ==========================================
-function startCallTimer() {
-    callStartTime = Date.now();
-    if (callTimerInterval) clearInterval(callTimerInterval);
-
-    callTimerInterval = setInterval(() => {
-        const now = Date.now();
-        const diff = now - callStartTime;
-        const minutes = Math.floor(diff / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
-        const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        
-        audioCallTimerDisplay.textContent = timeString;
-        if(isCurrentCallVideo) callStatus.textContent = timeString;
-    }, 1000);
-}
-
-// ==========================================
-// 5. ইনকামিং কল লিসেনার
-// ==========================================
+// 3. ইনকামিং কল শোনা (Listen for Calls)
 function listenForIncomingCalls() {
     if (!currentUser) return;
     
     const myCallsRef = db.ref(`calls/${currentUser.uid}`);
+    
+    // আগের লিসেনার রিমুভ করা যাতে ডুপ্লিকেট না হয়
     myCallsRef.off();
 
     myCallsRef.on('child_added', (snapshot) => {
         const data = snapshot.val();
         if (data && data.type === 'offer') {
+            // ইনকামিং কল পাওয়া গেছে
             incomingCallData = { ...data, key: snapshot.key };
-            activeCallPartnerId = data.callerId;
             showIncomingCallUI(data.callerName, data.isVideo);
         }
     });
     
+    // কল কেটে দিলে শোনা
     myCallsRef.on('child_removed', (snapshot) => {
          hideIncomingCallUI();
-         endCallUI(); 
+         endCallUI(); // UI রিসেট
     });
 }
 
 function showIncomingCallUI(name, isVideo) {
     const callerNameEl = document.getElementById('incoming-caller-name');
-    const msg = isVideo ? "Incoming Video Call..." : "Incoming Audio Call...";
-    
     if(callerNameEl) callerNameEl.textContent = name;
-    const incomingText = document.querySelector('#incoming-call-modal p');
-    if(incomingText) incomingText.textContent = msg;
-
+    
     if(incomingCallModal) incomingCallModal.classList.remove('hidden');
 }
 
@@ -215,71 +143,59 @@ function hideIncomingCallUI() {
 
 function endCallUI() {
     if(callModal) callModal.classList.add('hidden');
+    callStatus.textContent = "Ended";
     if(localVideo) localVideo.srcObject = null;
     if(remoteVideo) remoteVideo.srcObject = null;
-    audioCallTimerDisplay.textContent = "";
-    clearInterval(callTimerInterval);
 }
 
-// ==========================================
-// 6. কল রিসিভ করা (Answer Call - Receiver Side)
-// ==========================================
+// 4. কল রিসিভ করা (Answer Call)
 const acceptBtn = document.getElementById('accept-call-btn');
 if(acceptBtn) {
     acceptBtn.addEventListener('click', async () => {
         hideIncomingCallUI();
+        callModal.classList.remove('hidden');
+        callStatus.textContent = "Connecting...";
         
-        isCurrentCallVideo = incomingCallData.isVideo;
-        setupCallUI(isCurrentCallVideo, false, incomingCallData.callerName);
-
         try {
-            // [FIX] রিসিভারের জন্যও সেইম constraints ব্যবহার করা
-            const constraints = {
-                audio: true,
-                video: isCurrentCallVideo ? { facingMode: "user" } : false
-            };
-
-            localStream = await navigator.mediaDevices.getUserMedia(constraints);
-            
-            if (isCurrentCallVideo && localVideo) {
-                localVideo.srcObject = localStream;
-            }
+            const isVideo = incomingCallData.isVideo;
+            localStream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            localVideo.srcObject = localStream;
 
             peerConnection = new RTCPeerConnection(servers);
+            
+            // স্ট্রিম যোগ
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
+            // রিমোট ভিডিও সেট
             peerConnection.ontrack = (event) => {
                 remoteVideo.srcObject = event.streams[0];
             };
-            
-            peerConnection.onconnectionstatechange = () => {
-                if (peerConnection.connectionState === 'connected') {
-                    startCallTimer();
-                    const statusText = "Connected";
-                    callStatus.textContent = statusText;
-                    audioCallStatus.textContent = statusText;
-                }
-            };
 
+            // রিমোট অফার সেট করা
             await peerConnection.setRemoteDescription(JSON.parse(incomingCallData.sdp));
 
+            // উত্তর তৈরি (Answer)
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
 
+            // Firebase এ উত্তর পাঠানো
             currentCallRef = db.ref(`calls/${currentUser.uid}/${incomingCallData.key}`);
             await currentCallRef.update({
                 type: 'answer',
                 sdp: JSON.stringify(peerConnection.localDescription)
             });
             
+            // ICE Candidate পাঠানো (Answerer -> Caller)
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
                     currentCallRef.child('candidates').push(JSON.stringify(event.candidate));
                 }
             };
             
+            // Caller এর ক্যান্ডিডেট শোনা
             currentCallRef.child('candidates').on('child_added', (snapshot) => {
                 const candidate = JSON.parse(snapshot.val());
+                // রিমোট ক্যান্ডিডেট অ্যাড করার আগে চেক করা দরকার রিমোট ডেসক্রিপশন সেট হয়েছে কিনা
                 if(peerConnection.remoteDescription) {
                      peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
                 }
@@ -287,26 +203,25 @@ if(acceptBtn) {
 
         } catch (e) {
             console.error(e);
-            alert("Answer Error: " + e.message);
-            endCall(false);
+            endCall();
         }
     });
 }
 
-// ==========================================
-// 7. সিগন্যালিং এবং অন্যান্য
-// ==========================================
+// 5. Caller এর জন্য Answer শোনা
 function listenForAnswer(friendId, callId) {
     const callRef = db.ref(`calls/${friendId}/${callId}`);
     
     callRef.on('value', async (snapshot) => {
         const data = snapshot.val();
         if (data && data.type === 'answer' && !peerConnection.currentRemoteDescription) {
+            callStatus.textContent = "Connected";
             const answer = JSON.parse(data.sdp);
             await peerConnection.setRemoteDescription(answer);
         }
     });
 
+    // Receiver এর ক্যান্ডিডেট শোনা
     callRef.child('candidates').on('child_added', (snapshot) => {
         const candidate = JSON.parse(snapshot.val());
         if(peerConnection && peerConnection.remoteDescription) {
@@ -315,55 +230,25 @@ function listenForAnswer(friendId, callId) {
     });
 }
 
-function endCall(shouldSaveLog = true) {
+// 6. কল কেটে দেওয়া (End Call)
+function endCall() {
     if (peerConnection) peerConnection.close();
     if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
     }
     
-    let durationText = "0s";
-    if (callStartTime) {
-        const diff = Date.now() - callStartTime;
-        const minutes = Math.floor(diff / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
-        if (minutes > 0) durationText = `${minutes}m ${seconds}s`;
-        else durationText = `${seconds}s`;
-    }
-
     endCallUI();
     hideIncomingCallUI();
     
+    // Firebase থেকে ডাটা ডিলিট
     if (currentCallRef) currentCallRef.remove();
     
-    if (shouldSaveLog && activeCallPartnerId && callStartTime) {
-        saveCallLogToChat(activeCallPartnerId, durationText, isCurrentCallVideo);
-    }
-
     peerConnection = null;
     localStream = null;
     currentCallRef = null;
-    callStartTime = null;
-    activeCallPartnerId = null;
 }
 
-function saveCallLogToChat(partnerId, duration, isVideo) {
-    const uid1 = currentUser.uid;
-    const uid2 = partnerId;
-    const chatId = uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
-
-    const messageRef = db.ref(`messages/${chatId}`).push();
-    
-    messageRef.set({
-        sender: currentUser.uid,
-        type: 'call_log',
-        message: 'Call ended',
-        callDuration: duration,
-        callType: isVideo ? 'video' : 'audio',
-        timestamp: Date.now()
-    });
-}
-
-// বাটন ইভেন্ট
+// বাটন ইভেন্ট লিসেনার সেটআপ
 const videoCallBtn = document.getElementById('header-video-call-btn');
 const audioCallBtn = document.getElementById('header-audio-call-btn');
 const modalVideoBtn = document.getElementById('modal-video-call-btn');
@@ -380,6 +265,7 @@ if(modalVideoBtn) {
         startCall(true);
     });
 }
+
 if(modalAudioBtn) {
     modalAudioBtn.addEventListener('click', () => {
         document.getElementById('partner-profile-modal').classList.add('hidden');
@@ -387,7 +273,7 @@ if(modalAudioBtn) {
     });
 }
 
-if(endCallBtn) endCallBtn.addEventListener('click', () => endCall(true));
+if(endCallBtn) endCallBtn.addEventListener('click', endCall);
 
 if(rejectCallBtn) {
     rejectCallBtn.addEventListener('click', () => {
@@ -395,47 +281,17 @@ if(rejectCallBtn) {
         if(incomingCallData) {
             db.ref(`calls/${currentUser.uid}/${incomingCallData.key}`).remove();
         }
-        activeCallPartnerId = null;
     });
 }
 
-// মাইক এবং ক্যামেরা টগল
-const micToggleBtn = document.getElementById('mic-toggle-btn');
-if (micToggleBtn) {
-    micToggleBtn.addEventListener('click', () => {
-        if (localStream) {
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                micToggleBtn.style.background = audioTrack.enabled ? 'rgba(255,255,255,0.2)' : '#ff3b30';
-            }
-        }
-    });
-}
-
-const camToggleBtn = document.getElementById('camera-toggle-btn');
-if (camToggleBtn) {
-    camToggleBtn.addEventListener('click', () => {
-        if (!isCurrentCallVideo) {
-            alert("Switching to video is not supported yet."); 
-            return;
-        }
-        if (localStream) {
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = !videoTrack.enabled;
-                camToggleBtn.style.background = videoTrack.enabled ? 'rgba(255,255,255,0.2)' : '#ff3b30';
-            }
-        }
-    });
-}
-
-// ইনিশিয়ালাইজেশন
+// লগইন চেক এবং ইনকামিং কল লিসেনার
+// এটি নিশ্চিত করে যে Firebase লোড হওয়ার পর লিসেনার চালু হবে
 const checkAuthInterval = setInterval(() => {
     if (typeof firebase !== 'undefined' && firebase.auth()) {
         clearInterval(checkAuthInterval);
         firebase.auth().onAuthStateChanged((user) => {
             if (user) {
+                // currentUser গ্লোবাল ভেরিয়েবল সেট করা হয়েছে কিনা নিশ্চিত হয়ে নাও js-auth.js এ
                 listenForIncomingCalls();
             }
         });
