@@ -1,3 +1,5 @@
+// js-chat.js - Complete Updated Code
+
 const chatHeaderPicWrapper = document.getElementById('chat-header-pic-wrapper');
 const chatHeaderName = document.getElementById('chat-header-name');
 const chatMessages = document.getElementById('chat-messages');
@@ -24,27 +26,53 @@ const msgOptDeleteMe = document.getElementById('msg-opt-delete-me');
 const msgOptDeleteEveryone = document.getElementById('msg-opt-delete-everyone');
 const msgOptCancel = document.getElementById('msg-opt-cancel');
 
-// --- চ্যাট ওপেন করার ফাংশন (আপডেট করা হয়েছে) ---
+// --- চ্যাট ওপেন করার ফাংশন (কলিং লজিক সহ আপডেট করা হয়েছে) ---
 function openChat(p) {
     currentChatPartner = p;
     
-    // [NEW] কলিং ফিচারের জন্য গ্লোবাল আইডি সেট করা হলো
+    // [UPDATED] কল করার জন্য গ্লোবাল ভেরিয়েবলে পার্টনারের আইডি সেট করা
+    // এটি js-call.js ফাইলে startCall() ফাংশনে ব্যবহৃত হবে
     window.currentChatId = p.uid; 
     
     chatHeaderPicWrapper.innerHTML = getProfilePicHTML(p, '1.8rem');
     chatHeaderName.innerHTML = `<span class="item-name-text">${p.name}</span>${getVerifiedBadgeHTML(p)}`;
-    chatMessages.innerHTML = ''; messageElements = {};
-    showView('chat-view'); history.pushState(null, '', window.location.pathname);
+    chatMessages.innerHTML = ''; 
+    messageElements = {};
+    
+    showView('chat-view'); 
+    history.pushState(null, '', window.location.pathname);
+    
     db.ref(`unreadCounts/${currentUser.uid}/${p.uid}`).remove();
+    
     if (currentChatListener) currentChatListener.off();
     const ref = db.ref('messages/' + getChatId(currentUser.uid, p.uid));
+    
     currentChatListener = ref.limitToLast(50);
     currentChatListener.on('child_added', s => {
-        const m = s.val(); if (currentUserData.blockedUsers && currentUserData.blockedUsers[m.senderId]) return;
-        renderMessage(s.key, m); if (m.receiverId === currentUser.uid && m.status !== 'seen') ref.child(s.key).update({ status: 'seen' });
+        const m = s.val(); 
+        if (currentUserData.blockedUsers && currentUserData.blockedUsers[m.senderId]) return;
+        renderMessage(s.key, m); 
+        if (m.receiverId === currentUser.uid && m.status !== 'seen') {
+            ref.child(s.key).update({ status: 'seen' });
+        }
     });
-    currentChatListener.on('child_changed', s => { if (s.val().senderId === currentUser.uid && messageElements[s.key]) document.getElementById(`status-${s.key}`).innerHTML = getStatusSVG(s.val().status); });
-    currentChatListener.on('child_removed', s => { if (messageElements[s.key]) { messageElements[s.key].remove(); delete messageElements[s.key]; } });
+    
+    currentChatListener.on('child_changed', s => { 
+        if (s.val().senderId === currentUser.uid && messageElements[s.key]) {
+            // কল লগের জন্য স্ট্যাটাস আইকন আপডেট করার দরকার নেই
+            if (s.val().type !== 'call_log') {
+                const statusEl = document.getElementById(`status-${s.key}`);
+                if(statusEl) statusEl.innerHTML = getStatusSVG(s.val().status); 
+            }
+        } 
+    });
+    
+    currentChatListener.on('child_removed', s => { 
+        if (messageElements[s.key]) { 
+            messageElements[s.key].remove(); 
+            delete messageElements[s.key]; 
+        } 
+    });
 }
 
 function getStatusSVG(s) {
@@ -73,11 +101,63 @@ async function downloadMedia(url, type) {
     }
 }
 
+// --- রেন্ডার মেসেজ ফাংশন (কল লগ সাপোর্ট সহ) ---
 function renderMessage(mid, m) {
     const isMe = m.senderId === currentUser.uid;
     const hidden = JSON.parse(localStorage.getItem(`hidden_msgs_${currentUser.uid}`)) || [];
     if (hidden.includes(mid) || messageElements[mid]) return;
-    const b = document.createElement('div'); b.className = `message-bubble ${isMe ? 'message-sent' : 'message-received'}`; b.id = `msg-${mid}`;
+
+    // [UPDATED] কল হিস্ট্রি দেখানোর লজিক
+    if (m.type === 'call_log') {
+        const div = document.createElement('div');
+        div.id = `msg-${mid}`;
+        div.className = 'message-bubble system-message'; // CSS এ .system-message স্টাইল না থাকলে ডিফল্ট বাবল দেখাবে
+        // ইনলাইন স্টাইল দিয়ে মাঝখানে আনা হচ্ছে
+        div.style.cssText = `
+            align-self: center; 
+            background: rgba(255, 255, 255, 0.08); 
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px; 
+            padding: 5px 15px; 
+            margin: 10px auto; 
+            width: auto; 
+            max-width: 80%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: #b0c4de;
+            font-size: 0.85rem;
+        `;
+
+        const isVideo = m.callType === 'video';
+        // আইকন সেট করা
+        const iconSvg = isVideo 
+            ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>`
+            : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.161 15.161 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1.01A11.36 11.36 0 0 1 8.5 4c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1 13.81 13.81 0 0 0 16 16c.55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>`;
+        
+        const label = isVideo ? "Video Call" : "Audio Call";
+        const duration = m.callDuration || "Ended";
+
+        div.innerHTML = `${iconSvg} <span>${label} • ${duration}</span>`;
+        
+        // লং প্রেস করলে ডিলিট অপশন
+        let pt; 
+        const sp = () => { pt = setTimeout(() => { openMessageOptions(mid, "Call Log", isMe); }, 600); };
+        const cp = () => { clearTimeout(pt); };
+        div.addEventListener('mousedown', sp); div.addEventListener('mouseup', cp); div.addEventListener('mouseleave', cp); 
+        div.addEventListener('touchstart', sp); div.addEventListener('touchend', cp); div.addEventListener('touchmove', cp);
+
+        chatMessages.appendChild(div);
+        messageElements[mid] = div;
+        if (chatMessages.scrollHeight - chatMessages.clientHeight <= chatMessages.scrollTop + 100) chatMessages.scrollTop = chatMessages.scrollHeight;
+        return; // এখানে রিটার্ন করছি যাতে নিচের কোড আর রান না করে
+    }
+
+    // সাধারণ মেসেজ রেন্ডারিং (আগের মতোই)
+    const b = document.createElement('div'); 
+    b.className = `message-bubble ${isMe ? 'message-sent' : 'message-received'}`; 
+    b.id = `msg-${mid}`;
 
     if (m.status === 'sending') b.style.opacity = '0.8';
 
@@ -91,8 +171,14 @@ function renderMessage(mid, m) {
     else if (m.type === 'image' || m.type === 'video') {
         const d = document.createElement('div'); d.className = 'media-bubble';
         let iconSvg = '';
-        if (m.type === 'image') iconSvg = '<svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:var(--wa-text-primary);"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>';
+        if (m.type === 'image') iconSvg = '<svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:var(--wa-text-primary);"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0 -1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>'; // Image icon fix
         else iconSvg = '<svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:var(--wa-text-primary);"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg>';
+        
+        // ইমেজ হলে ক্যামেরা আইকন, ভিডিও হলে ফিল্ম আইকন
+        if (m.type === 'image') {
+             iconSvg = '<svg viewBox="0 0 24 24" style="width:24px;height:24px;fill:var(--wa-text-primary);"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>';
+        }
+
         let label = m.type === 'image' ? '📷 Photo' : '🎥 Video';
         d.innerHTML = `${iconSvg}<span class="media-text">${label}</span>`;
         d.addEventListener('click', () => {
@@ -131,12 +217,12 @@ function sendMessage() {
 }
 chatSendBtn.addEventListener('click', sendMessage);
 
-// --- ব্যাক বাটনের কোড (আপডেট করা হয়েছে) ---
+// --- ব্যাক বাটনের কোড (কলিং আইডি রিসেট সহ আপডেট করা হয়েছে) ---
 chatBackBtn.addEventListener('click', () => { 
     showView('main-view'); 
     currentChatPartner = null; 
     
-    // [NEW] কলিং আইডি রিসেট করা হলো
+    // [UPDATED] কল করার আইডি নাল করে দেওয়া
     window.currentChatId = null; 
     
     if (currentChatListener) currentChatListener.off(); 
@@ -203,17 +289,24 @@ function handleMediaSend(fileOrBlob, type) {
     const tempMsg = { text: textLabel, type: type, content: blobUrl, senderId: currentUser.uid, receiverId: currentChatPartner.uid, timestamp: Date.now(), status: 'sending' };
     renderMessage(tempId, tempMsg);
     const resourceType = (type === 'audio' || type === 'video') ? 'video' : 'image';
-    uploadToCloudinary(fileOrBlob, resourceType).then(url => {
-        if (url) {
-            const dbMsg = { ...tempMsg, content: url, status: 'sent' }; dbMsg.timestamp = firebase.database.ServerValue.TIMESTAMP;
-            db.ref('messages/' + chatId).push(dbMsg);
-            db.ref(`unreadCounts/${currentChatPartner.uid}/${currentUser.uid}`).transaction(count => (count || 0) + 1);
-            const tempEl = document.getElementById('msg-' + tempId); if (tempEl) tempEl.remove(); delete messageElements[tempId];
-        } else {
-            showNotification("Failed to send media.");
-            const tempEl = document.getElementById('msg-' + tempId); if (tempEl) tempEl.style.opacity = '0.5';
-        }
-    });
+    
+    // Cloudinary আপলোড ফাংশন (js-config.js বা অন্য কোথাও আছে ধরে নেওয়া হলো)
+    if(typeof uploadToCloudinary !== 'undefined') {
+        uploadToCloudinary(fileOrBlob, resourceType).then(url => {
+            if (url) {
+                const dbMsg = { ...tempMsg, content: url, status: 'sent' }; dbMsg.timestamp = firebase.database.ServerValue.TIMESTAMP;
+                db.ref('messages/' + chatId).push(dbMsg);
+                db.ref(`unreadCounts/${currentChatPartner.uid}/${currentUser.uid}`).transaction(count => (count || 0) + 1);
+                const tempEl = document.getElementById('msg-' + tempId); if (tempEl) tempEl.remove(); delete messageElements[tempId];
+            } else {
+                showNotification("Failed to send media.");
+                const tempEl = document.getElementById('msg-' + tempId); if (tempEl) tempEl.style.opacity = '0.5';
+            }
+        });
+    } else {
+        console.error("uploadToCloudinary function not found!");
+        showNotification("Upload Error: Config missing");
+    }
 }
 closeMediaBtn.addEventListener('click', () => { mediaViewModal.classList.add('hidden'); mediaContentDisplay.innerHTML = ''; currentViewingMsgId = null; currentMediaUrl = null; currentMediaType = null; });
 modalDownloadBtn.addEventListener('click', () => { if (currentMediaUrl && currentMediaType) { downloadMedia(currentMediaUrl, currentMediaType); } });

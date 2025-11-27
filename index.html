@@ -20,6 +20,62 @@
     <link rel="stylesheet" href="style-home.css">
     <link rel="stylesheet" href="style-chat.css">
     <link rel="stylesheet" href="style-modal.css">
+
+    <style>
+        /* অডিও কল UI এর জন্য স্পেশাল ডিজাইন */
+        #audio-ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); /* WhatsApp Dark Style Background */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 15; /* ভিডিওর উপরে থাকবে */
+        }
+        
+        .audio-avatar-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .audio-avatar-large {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background-color: #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.1);
+            animation: pulse-ring 2s infinite;
+        }
+
+        #audio-call-name-display {
+            font-size: 1.8rem;
+            color: white;
+            font-weight: 500;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        #audio-call-status-text {
+            color: #b0c4de;
+            font-size: 1rem;
+            letter-spacing: 1px;
+        }
+
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.2); }
+            70% { box-shadow: 0 0 0 20px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+    </style>
 </head>
 <body>
 
@@ -188,7 +244,7 @@
                 <div id="profile-pic-wrapper" class="item-emoji" title="Click to change picture"></div>
                 <div class="profile-name-wrapper">
                     <h3 id="profile-view-name">YOUR NAME</h3>
-                    <button id="profile-edit-name-btn" title="Edit Name"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11l.178-.178z"/></svg></button>
+                    <button id="profile-edit-name-btn" title="Edit Name"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12.854.146a.5.5 0 0 0-.707 0L10.5 1.793 14.207 5.5l1.647-1.646a.5.5 0 0 0 0-.708l-3-3zm.646 6.061L9.793 2.5 3.293 9H3.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.207l6.5-6.5zm-7.468 7.468A.5.5 0 0 1 6 13.5V13h-.5a.5.5 0 0 1-.5-.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.5-.5V10h-.5a.499.499 0 0 1-.175-.032l-.179.178a.5.5 0 0 0-.11.168l-2 5a.5.5 0 0 0 .65.65l5-2a.5.5 0 0 0 .168-.11l.178-.178z"/></svg></button>
                 </div>
                 <div id="profile-edit-name-form" class="hidden">
                     <input type="text" id="profile-name-input" placeholder="New Name">
@@ -274,18 +330,29 @@
 
     <div id="call-interface-modal" class="modal hidden" style="background: #111; z-index: 3000;">
         <div class="call-content" style="width: 100%; height: 100%; position: relative; display: flex; flex-direction: column;">
-            <video id="remote-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
             
-            <div style="position: absolute; top: 20px; right: 20px; width: 100px; height: 140px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-                <video id="local-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);"></video>
+            <div id="video-ui-layer" style="width: 100%; height: 100%; position: absolute; top:0; left:0;">
+                <video id="remote-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+                <div style="position: absolute; top: 20px; right: 20px; width: 100px; height: 140px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(255,255,255,0.2); box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    <video id="local-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);"></video>
+                </div>
             </div>
 
-            <div style="position: absolute; top: 40px; left: 0; right: 0; text-align: center; z-index: 10;">
+            <div id="audio-ui-layer" class="hidden">
+                <div class="audio-avatar-container">
+                    <div id="audio-call-avatar" class="audio-avatar-large">👤</div>
+                </div>
+                <h2 id="audio-call-name-display">Unknown</h2>
+                <p id="audio-call-status-text">Calling...</p>
+                <p id="audio-call-timer" style="margin-top:5px; color:white; font-weight:bold;"></p>
+            </div>
+
+            <div id="video-call-info" style="position: absolute; top: 40px; left: 0; right: 0; text-align: center; z-index: 20;">
                 <h2 id="call-partner-name" style="color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">Calling...</h2>
                 <p id="call-status" style="color: #ddd; font-size: 0.9rem;">Connecting</p>
             </div>
 
-            <div class="call-controls" style="position: absolute; bottom: 40px; left: 0; right: 0; display: flex; justify-content: center; gap: 20px; z-index: 10;">
+            <div class="call-controls" style="position: absolute; bottom: 40px; left: 0; right: 0; display: flex; justify-content: center; gap: 20px; z-index: 30;">
                 <button id="mic-toggle-btn" style="width: 50px; height: 50px; border-radius: 50%; border: none; background: rgba(255,255,255,0.2); backdrop-filter: blur(5px); color: white;">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
                 </button>
